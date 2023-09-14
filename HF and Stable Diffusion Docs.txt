@@ -1,0 +1,590 @@
+HuggingFace Diffusion Breakdown:
+{
+    Diffusion models are trained to denoise random Gaussian noise step-by-step to generate a sample of interest, such as an image or audio. This has sparked a tremendous amount of interest in generative AI, and  🧨 Diffusers is a library aimed at making diffusion models widely accessible to everyone.
+
+Whether you’re a developer or an everyday user, this quicktour will introduce you to 🧨 Diffusers and help you get up and generating quickly! There are three main components of the library to know about:
+
+The DiffusionPipeline is a high-level end-to-end class designed to rapidly generate samples from pretrained diffusion models for inference.
+    Popular pretrained model architectures and modules that can be used as building blocks for creating diffusion systems.
+    Many different schedulers - algorithms that control how noise is added for training, and how to generate denoised images during inference.
+    The quicktour will show you how to use the DiffusionPipeline for inference, and then walk you through how to combine a model and scheduler to replicate what’s happening inside the DiffusionPipeline.
+
+The quicktour is a simplified version of the introductory 🧨 Diffusers notebook to help you get started quickly. If you want to learn more about 🧨 Diffusers goal, design philosophy, and additional details about it’s core API, check out the notebook!
+
+Before you begin, make sure you have all the necessary libraries installed:
+
+Copied
+    # uncomment to install the necessary libraries in Colab
+    #!pip install --upgrade diffusers accelerate transformers
+    🤗 Accelerate speeds up model loading for inference and training.
+    🤗 Transformers is required to run the most popular diffusion models, such as Stable Diffusion.
+    DiffusionPipeline
+    The DiffusionPipeline is the easiest way to use a pretrained diffusion system for inference. It is an end-to-end system containing the model and the scheduler. You can use the DiffusionPipeline out-of-the-box for many tasks. Take a look at the table below for some supported tasks, and for a complete list of supported tasks, check out the 🧨 Diffusers Summary table.
+
+Task    Description Pipeline
+    Unconditional Image Generation  generate an image from Gaussian noise   unconditional_image_generation
+    Text-Guided Image Generation    generate an image given a text prompt   conditional_image_generation
+    Text-Guided Image-to-Image Translation  adapt an image guided by a text prompt  img2img
+    Text-Guided Image-Inpainting    fill the masked part of an image given the image, the mask and a text prompt    inpaint
+    Text-Guided Depth-to-Image Translation  adapt parts of an image guided by a text prompt while preserving structure via depth estimation depth2img
+    Start by creating an instance of a DiffusionPipeline and specify which pipeline checkpoint you would like to download. You can use the DiffusionPipeline for any checkpoint stored on the Hugging Face Hub. In this quicktour, you’ll load the stable-diffusion-v1-5 checkpoint for text-to-image generation.
+
+For Stable Diffusion models, please carefully read the license first before running the model. 🧨 Diffusers implements a safety_checker to prevent offensive or harmful content, but the model’s improved image generation capabilities can still produce potentially harmful content.
+
+Load the model with the from_pretrained() method:
+
+Copied
+    from diffusers import DiffusionPipeline
+
+Pipeline = DiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", use_safetensors=True)
+    The DiffusionPipeline downloads and caches all modeling, tokenization, and scheduling components. You’ll see that the Stable Diffusion pipeline is composed of the UNet2DConditionModel and PNDMScheduler among other things:
+
+Copied
+    pipeline
+    StableDiffusionPipeline {
+      "_class_name": "StableDiffusionPipeline",
+      "_diffusers_version": "0.13.1",
+      ...,
+      "scheduler": [
+        "diffusers",
+        "PNDMScheduler"
+      ],
+      ...,
+      "unet": [
+        "diffusers",
+        "UNet2DConditionModel"
+      ],
+      "vae": [
+        "diffusers",
+        "AutoencoderKL"
+      ]
+    }
+    We strongly recommend running the pipeline on a GPU because the model consists of roughly 1.4 billion parameters. You can move the generator object to a GPU, just like you would in PyTorch:
+
+Copied
+    pipeline.to("cuda")
+    Now you can pass a text prompt to the pipeline to generate an image, and then access the denoised image. By default, the image output is wrapped in a PIL.Image object.
+
+Copied
+    image = pipeline("An image of a squirrel in Picasso style").images[0]
+    image
+
+Save the image by calling save:
+
+Copied
+    image.save("image_of_squirrel_painting.png")
+    Local pipeline
+    You can also use the pipeline locally. The only difference is you need to download the weights first:
+
+Copied
+    !git lfs install
+    !git clone https://huggingface.co/runwayml/stable-diffusion-v1-5
+    Then load the saved weights into the pipeline:
+
+Copied
+    pipeline = DiffusionPipeline.from_pretrained("./stable-diffusion-v1-5", use_safetensors=True)
+    Now you can run the pipeline as you would in the section above.
+
+Swapping schedulers
+    Different schedulers come with different denoising speeds and quality trade-offs. The best way to find out which one works best for you is to try them out! One of the main features of 🧨 Diffusers is to allow you to easily switch between schedulers. For example, to replace the default PNDMScheduler with the EulerDiscreteScheduler, load it with the from_config() method:
+
+Copied
+    from diffusers import EulerDiscreteScheduler
+
+Pipeline = DiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5", use_safetensors=True)
+    pipeline.scheduler = EulerDiscreteScheduler.from_config(pipeline.scheduler.config)
+    Try generating an image with the new scheduler and see if you notice a difference!
+
+In the next section, you’ll take a closer look at the components - the model and scheduler - that make up the DiffusionPipeline and learn how to use these components to generate an image of a cat.
+
+Models
+    Most models take a noisy sample, and at each timestep it predicts the noise residual (other models learn to predict the previous sample directly or the velocity or v-prediction), the difference between a less noisy image and the input image. You can mix and match models to create other diffusion systems.
+
+Models are initiated with the from_pretrained() method which also locally caches the model weights so it is faster the next time you load the model. For the quicktour, you’ll load the UNet2DModel, a basic unconditional image generation model with a checkpoint trained on cat images:
+
+Copied
+    from diffusers import UNet2DModel
+
+Repo_id = "google/ddpm-cat-256"
+    model = UNet2DModel.from_pretrained(repo_id, use_safetensors=True)
+    To access the model parameters, call model.config:
+
+Copied
+    model.config
+    The model configuration is a 🧊 frozen 🧊 dictionary, which means those parameters can’t be changed after the model is created. This is intentional and ensures that the parameters used to define the model architecture at the start remain the same, while other parameters can still be adjusted during inference.
+
+Some of the most important parameters are:
+
+Sample_size: the height and width dimension of the input sample.
+    in_channels: the number of input channels of the input sample.
+    down_block_types and up_block_types: the type of down- and upsampling blocks used to create the UNet architecture.
+    block_out_channels: the number of output channels of the downsampling blocks; also used in reverse order for the number of input channels of the upsampling blocks.
+    layers_per_block: the number of ResNet blocks present in each UNet block.
+    To use the model for inference, create the image shape with random Gaussian noise. It should have a batch axis because the model can receive multiple random noises, a channel axis corresponding to the number of input channels, and a sample_size axis for the height and width of the image:
+
+Copied
+    import torch
+
+Torch.manual_seed(0)
+
+Noisy_sample = torch.randn(1, model.config.in_channels, model.config.sample_size, model.config.sample_size)
+    noisy_sample.shape
+    torch.Size([1, 3, 256, 256])
+    For inference, pass the noisy image to the model and a timestep. The timestep indicates how noisy the input image is, with more noise at the beginning and less at the end. This helps the model determine its position in the diffusion process, whether it is closer to the start or the end. Use the sample method to get the model output:
+
+Copied
+    with torch.no_grad():
+        noisy_residual = model(sample=noisy_sample, timestep=2).sample
+    To generate actual examples though, you’ll need a scheduler to guide the denoising process. In the next section, you’ll learn how to couple a model with a scheduler.
+
+Schedulers
+    Schedulers manage going from a noisy sample to a less noisy sample given the model output - in this case, it is the noisy_residual.
+
+🧨 Diffusers is a toolbox for building diffusion systems. While the DiffusionPipeline is a convenient way to get started with a pre-built diffusion system, you can also choose your own model and scheduler components separately to build a custom diffusion system.
+
+For the quicktour, you’ll instantiate the DDPMScheduler with it’s from_config() method:
+
+Copied
+    from diffusers import DDPMScheduler
+
+Scheduler = DDPMScheduler.from_config(repo_id)
+    scheduler
+    DDPMScheduler {
+      "_class_name": "DDPMScheduler",
+      "_diffusers_version": "0.13.1",
+      "beta_end": 0.02,
+      "beta_schedule": "linear",
+      "beta_start": 0.0001,
+      "clip_sample": true,
+      "clip_sample_range": 1.0,
+      "num_train_timesteps": 1000,
+      "prediction_type": "epsilon",
+      "trained_betas": null,
+      "variance_type": "fixed_small"
+    }
+    💡 Notice how the scheduler is instantiated from a configuration. Unlike a model, a scheduler does not have trainable weights and is parameter-free!
+
+Some of the most important parameters are:
+
+Num_train_timesteps: the length of the denoising process or in other words, the number of timesteps required to process random Gaussian noise into a data sample.
+    beta_schedule: the type of noise schedule to use for inference and training.
+    beta_start and beta_end: the start and end noise values for the noise schedule.
+    To predict a slightly less noisy image, pass the following to the scheduler’s step() method: model output, timestep, and current sample.
+
+Copied
+    less_noisy_sample = scheduler.step(model_output=noisy_residual, timestep=2, sample=noisy_sample).prev_sample
+    less_noisy_sample.shape
+    The less_noisy_sample can be passed to the next timestep where it’ll get even less noisier! Let’s bring it all together now and visualize the entire denoising process.
+
+First, create a function that postprocesses and displays the denoised image as a PIL.Image:
+
+Copied
+    import PIL.Image
+    import numpy as np
+
+Def display_sample(sample, i):
+        image_processed = sample.cpu().permute(0, 2, 3, 1)
+        image_processed = (image_processed + 1.0) * 127.5
+        image_processed = image_processed.numpy().astype(np.uint8)
+
+Image_pil = PIL.Image.fromarray(image_processed[0])
+        display(f"Image at step {i}")
+        display(image_pil)
+    To speed up the denoising process, move the input and model to a GPU:
+
+Copied
+    model.to("cuda")
+    noisy_sample = noisy_sample.to("cuda")
+    Now create a denoising loop that predicts the residual of the less noisy sample, and computes the less noisy sample with the scheduler:
+
+Copied
+    import tqdm
+
+Sample = noisy_sample
+
+For i, t in enumerate(tqdm.tqdm(scheduler.timesteps)):
+        # 1. Predict noise residual
+        with torch.no_grad():
+            residual = model(sample, t).sample
+
+# 2. Compute less noisy image and set x_t -> x_t-1
+        sample = scheduler.step(residual, t, sample).prev_sample
+
+# 3. Optionally look at image
+        if (i + 1) % 50 == 0:
+            display_sample(sample, i + 1)
+    Sit back and watch as a cat is generated from nothing but noise! 😻
+}
+
+Diffusers:
+{
+    🤗 Diffusers is the go-to library for state-of-the-art pretrained diffusion models for generating images, audio, and even 3D structures of molecules. Whether you’re looking for a simple inference solution or want to train your own diffusion model, 🤗 Diffusers is a modular toolbox that supports both. Our library is designed with a focus on usability over performance, simple over easy, and customizability over abstractions.
+
+The library has three main components:
+
+State-of-the-art diffusion pipelines for inference with just a few lines of code.
+    Interchangeable noise schedulers for balancing trade-offs between generation speed and quality.
+    Pretrained models that can be used as building blocks, and combined with schedulers, for creating your own end-to-end diffusion systems.
+    Tutorials
+    Learn the fundamental skills you need to start generating outputs, build your own diffusion system, and train a diffusion model. We recommend starting here if you're using 🤗 Diffusers for the first time!
+
+How-to guides
+    Practical guides for helping you load pipelines, models, and schedulers. You'll also learn how to use pipelines for specific tasks, control how outputs are generated, optimize for inference speed, and different training techniques.
+
+Conceptual guides
+    Understand why the library was designed the way it was, and learn more about the ethical guidelines and safety implementations for using the library.
+
+Reference
+    Technical descriptions of how 🤗 Diffusers classes and methods work.
+
+Supported pipelines
+    Pipeline    Paper/Repository    Tasks
+    alt_diffusion   AltCLIP: Altering the Language Encoder in CLIP for Extended Language Capabilities   Image-to-Image Text-Guided Generation
+    audio_diffusion Audio Diffusion Unconditional Audio Generation
+    controlnet  Adding Conditional Control to Text-to-Image Diffusion Models    Image-to-Image Text-Guided Generation
+    cycle_diffusion Unifying Diffusion Models’ Latent Space, with Applications to CycleDiffusion and Guidance   Image-to-Image Text-Guided Generation
+    dance_diffusion Dance Diffusion Unconditional Audio Generation
+    ddpm    Denoising Diffusion Probabilistic Models    Unconditional Image Generation
+    ddim    Denoising Diffusion Implicit Models Unconditional Image Generation
+    if  IF  Image Generation
+    if_img2img  IF  Image-to-Image Generation
+    if_inpainting   IF  Image-to-Image Generation
+    latent_diffusion    High-Resolution Image Synthesis with Latent Diffusion Models    Text-to-Image Generation
+    latent_diffusion    High-Resolution Image Synthesis with Latent Diffusion Models    Super Resolution Image-to-Image
+    latent_diffusion_uncond High-Resolution Image Synthesis with Latent Diffusion Models    Unconditional Image Generation
+    paint_by_example    Paint by Example: Exemplar-based Image Editing with Diffusion Models    Image-Guided Image Inpainting
+    pndm    Pseudo Numerical Methods for Diffusion Models on Manifolds  Unconditional Image Generation
+    score_sde_ve    Score-Based Generative Modeling through Stochastic Differential Equations   Unconditional Image Generation
+    score_sde_vp    Score-Based Generative Modeling through Stochastic Differential Equations   Unconditional Image Generation
+    semantic_stable_diffusion   Semantic Guidance   Text-Guided Generation
+    stable_diffusion_adapter    T2I-Adapter Image-to-Image Text-Guided Generation
+    stable_diffusion_text2img   Stable Diffusion    Text-to-Image Generation
+    stable_diffusion_img2img    Stable Diffusion    Image-to-Image Text-Guided Generation
+    stable_diffusion_inpaint    Stable Diffusion    Text-Guided Image Inpainting
+    stable_diffusion_panorama   MultiDiffusion  Text-to-Panorama Generation
+    stable_diffusion_pix2pix    InstructPix2Pix: Learning to Follow Image Editing Instructions  Text-Guided Image Editing
+    stable_diffusion_pix2pix_zero   Zero-shot Image-to-Image Translation    Text-Guided Image Editing
+    stable_diffusion_attend_and_excite  Attend-and-Excite: Attention-Based Semantic Guidance for Text-to-Image Diffusion Models Text-to-Image Generation
+    stable_diffusion_self_attention_guidance    Improving Sample Quality of Diffusion Models Using Self-Attention Guidance  Text-to-Image Generation Unconditional Image Generation
+    stable_diffusion_image_variation    Stable Diffusion Image Variations   Image-to-Image Generation
+    stable_diffusion_latent_upscale Stable Diffusion Latent Upscaler    Text-Guided Super Resolution Image-to-Image
+    stable_diffusion_model_editing  Editing Implicit Assumptions in Text-to-Image Diffusion Models  Text-to-Image Model Editing
+    stable_diffusion_2  Stable Diffusion 2  Text-to-Image Generation
+    stable_diffusion_2  Stable Diffusion 2  Text-Guided Image Inpainting
+    stable_diffusion_2  Depth-Conditional Stable Diffusion  Depth-to-Image Generation
+    stable_diffusion_2  Stable Diffusion 2  Text-Guided Super Resolution Image-to-Image
+    stable_diffusion_safe   Safe Stable Diffusion   Text-Guided Generation
+    stable_unclip   Stable unCLIP   Text-to-Image Generation
+    stable_unclip   Stable unCLIP   Image-to-Image Text-Guided Generation
+    stochastic_karras_ve    Elucidating the Design Space of Diffusion-Based Generative Models   Unconditional Image Generation
+    text_to_video_sd    Modelscope’s Text-to-video-synthesis Model in Open Domain   Text-to-Video Generation
+    unclip  Hierarchical Text-Conditional Image Generation with CLIP Latents(implementation by kakaobrain)  Text-to-Image Generation
+    versatile_diffusion Versatile Diffusion: Text, Images and Variations All in One Diffusion Model Text-to-Image Generation
+    versatile_diffusion Versatile Diffusion: Text, Images and Variations All in One Diffusion Model Image Variations Generation
+    versatile_diffusion Versatile Diffusion: Text, Images and Variations All in One Diffusion Model Dual Image and Text Guided Generation
+    vq_diffusion    Vector Quantized Diffusion Model for Text-to-Image Synthesis    Text-to-Image Generation
+    stable_diffusion_ldm3d  LDM3D: Latent Diffusion Model for 3D    Text to Image and Depth Generation
+}
+
+Effective and efficient diffusion:
+{   
+    Getting the DiffusionPipeline to generate images in a certain style or include what you want can be tricky. Often times, you have to run the DiffusionPipeline several times before you end up with an image you’re happy with. But generating something out of nothing is a computationally intensive process, especially if you’re running inference over and over again.
+
+This is why it’s important to get the most computational (speed) and memory (GPU RAM) efficiency from the pipeline to reduce the time between inference cycles so you can iterate faster.
+
+This tutorial walks you through how to generate faster and better with the DiffusionPipeline.
+
+Begin by loading the runwayml/stable-diffusion-v1-5 model:
+
+Copied
+    from diffusers import DiffusionPipeline
+
+Model_id = "runwayml/stable-diffusion-v1-5"
+    pipeline = DiffusionPipeline.from_pretrained(model_id, use_safetensors=True)
+    The example prompt you’ll use is a portrait of an old warrior chief, but feel free to use your own prompt:
+
+Copied
+    prompt = "portrait photo of a old warrior chief"
+    Speed
+    💡 If you don’t have access to a GPU, you can use one for free from a GPU provider like Colab!
+
+One of the simplest ways to speed up inference is to place the pipeline on a GPU the same way you would with any PyTorch module:
+
+Copied
+    pipeline = pipeline.to("cuda")
+    To make sure you can use the same image and improve on it, use a Generator and set a seed for reproducibility:
+
+Copied
+    import torch
+
+Generator = torch.Generator("cuda").manual_seed(0)
+    Now you can generate an image:
+
+Copied
+    image = pipeline(prompt, generator=generator).images[0]
+    image
+
+This process took ~30 seconds on a T4 GPU (it might be faster if your allocated GPU is better than a T4). By default, the DiffusionPipeline runs inference with full float32 precision for 50 inference steps. You can speed this up by switching to a lower precision like float16 or running fewer inference steps.
+
+Let’s start by loading the model in float16 and generate an image:
+
+Copied
+    import torch
+
+Pipeline = DiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16, use_safetensors=True)
+    pipeline = pipeline.to("cuda")
+    generator = torch.Generator("cuda").manual_seed(0)
+    image = pipeline(prompt, generator=generator).images[0]
+    image
+
+This time, it only took ~11 seconds to generate the image, which is almost 3x faster than before!
+
+💡 We strongly suggest always running your pipelines in float16, and so far, we’ve rarely seen any degradation in output quality.
+
+Another option is to reduce the number of inference steps. Choosing a more efficient scheduler could help decrease the number of steps without sacrificing output quality. You can find which schedulers are compatible with the current model in the DiffusionPipeline by calling the compatibles method:
+
+Copied
+    pipeline.scheduler.compatibles
+    [
+        diffusers.schedulers.scheduling_lms_discrete.LMSDiscreteScheduler,
+        diffusers.schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler,
+        diffusers.schedulers.scheduling_k_dpm_2_discrete.KDPM2DiscreteScheduler,
+        diffusers.schedulers.scheduling_deis_multistep.DEISMultistepScheduler,
+        diffusers.schedulers.scheduling_euler_discrete.EulerDiscreteScheduler,
+        diffusers.schedulers.scheduling_dpmsolver_multistep.DPMSolverMultistepScheduler,
+        diffusers.schedulers.scheduling_ddpm.DDPMScheduler,
+        diffusers.schedulers.scheduling_dpmsolver_singlestep.DPMSolverSinglestepScheduler,
+        diffusers.schedulers.scheduling_k_dpm_2_ancestral_discrete.KDPM2AncestralDiscreteScheduler,
+        diffusers.schedulers.scheduling_heun_discrete.HeunDiscreteScheduler,
+        diffusers.schedulers.scheduling_pndm.PNDMScheduler,
+        diffusers.schedulers.scheduling_euler_ancestral_discrete.EulerAncestralDiscreteScheduler,
+        diffusers.schedulers.scheduling_ddim.DDIMScheduler,
+    ]
+    The Stable Diffusion model uses the PNDMScheduler by default which usually requires ~50 inference steps, but more performant schedulers like DPMSolverMultistepScheduler, require only ~20 or 25 inference steps. Use the ConfigMixin.from_config() method to load a new scheduler:
+
+Copied
+    from diffusers import DPMSolverMultistepScheduler
+
+Pipeline.scheduler = DPMSolverMultistepScheduler.from_config(pipeline.scheduler.config)
+    Now set the num_inference_steps to 20:
+
+Copied
+    generator = torch.Generator("cuda").manual_seed(0)
+    image = pipeline(prompt, generator=generator, num_inference_steps=20).images[0]
+    image
+
+Great, you’ve managed to cut the inference time to just 4 seconds! ⚡️
+
+Memory
+    The other key to improving pipeline performance is consuming less memory, which indirectly implies more speed, since you’re often trying to maximize the number of images generated per second. The easiest way to see how many images you can generate at once is to try out different batch sizes until you get an OutOfMemoryError (OOM).
+
+Create a function that’ll generate a batch of images from a list of prompts and Generators. Make sure to assign each Generator a seed so you can reuse it if it produces a good result.
+
+Copied
+    def get_inputs(batch_size=1):
+        generator = [torch.Generator("cuda").manual_seed(i) for i in range(batch_size)]
+        prompts = batch_size * [prompt]
+        num_inference_steps = 20
+
+Return {"prompt": prompts, "generator": generator, "num_inference_steps": num_inference_steps}
+    Start with batch_size=4 and see how much memory you’ve consumed:
+
+Copied
+    from diffusers.utils import make_image_grid
+
+Images = pipeline(**get_inputs(batch_size=4)).images
+    make_image_grid(images, 2, 2)
+    Unless you have a GPU with more RAM, the code above probably returned an OOM error! Most of the memory is taken up by the cross-attention layers. Instead of running this operation in a batch, you can run it sequentially to save a significant amount of memory. All you have to do is configure the pipeline to use the enable_attention_slicing() function:
+
+Copied
+    pipeline.enable_attention_slicing()
+    Now try increasing the batch_size to 8!
+
+Copied
+    images = pipeline(**get_inputs(batch_size=8)).images
+    make_image_grid(images, rows=2, cols=4)
+
+Whereas before you couldn’t even generate a batch of 4 images, now you can generate a batch of 8 images at ~3.5 seconds per image! This is probably the fastest you can go on a T4 GPU without sacrificing quality.
+
+Quality
+    In the last two sections, you learned how to optimize the speed of your pipeline by using fp16, reducing the number of inference steps by using a more performant scheduler, and enabling attention slicing to reduce memory consumption. Now you’re going to focus on how to improve the quality of generated images.
+
+Better checkpoints
+    The most obvious step is to use better checkpoints. The Stable Diffusion model is a good starting point, and since its official launch, several improved versions have also been released. However, using a newer version doesn’t automatically mean you’ll get better results. You’ll still have to experiment with different checkpoints yourself, and do a little research (such as using negative prompts) to get the best results.
+
+As the field grows, there are more and more high-quality checkpoints finetuned to produce certain styles. Try exploring the Hub and Diffusers Gallery to find one you’re interested in!
+
+Better pipeline components
+    You can also try replacing the current pipeline components with a newer version. Let’s try loading the latest autodecoder from Stability AI into the pipeline, and generate some images:
+
+Copied
+    from diffusers import AutoencoderKL
+
+Vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", torch_dtype=torch.float16).to("cuda")
+    pipeline.vae = vae
+    images = pipeline(**get_inputs(batch_size=8)).images
+    make_image_grid(images, rows=2, cols=4)
+
+Better prompt engineering
+    The text prompt you use to generate an image is super important, so much so that it is called prompt engineering. Some considerations to keep during prompt engineering are:
+
+How is the image or similar images of the one I want to generate stored on the internet?
+    What additional detail can I give that steers the model towards the style I want?
+    With this in mind, let’s improve the prompt to include color and higher quality details:
+
+Copied
+    prompt += ", tribal panther make up, blue on red, side profile, looking away, serious eyes"
+    prompt += " 50mm portrait photography, hard rim lighting photography--beta --ar 2:3  --beta --upbeta"
+    Generate a batch of images with the new prompt:
+
+Copied
+    images = pipeline(**get_inputs(batch_size=8)).images
+    make_image_grid(images, rows=2, cols=4)
+
+Pretty impressive! Let’s tweak the second image - corresponding to the Generator with a seed of 1 - a bit more by adding some text about the age of the subject:
+
+Copied
+    prompts = [
+        "portrait photo of the oldest warrior chief, tribal panther make up, blue on red, side profile, looking away, serious eyes 50mm portrait photography, hard rim lighting photography--beta --ar 2:3  --beta --upbeta",
+        "portrait photo of a old warrior chief, tribal panther make up, blue on red, side profile, looking away, serious eyes 50mm portrait photography, hard rim lighting photography--beta --ar 2:3  --beta --upbeta",
+        "portrait photo of a warrior chief, tribal panther make up, blue on red, side profile, looking away, serious eyes 50mm portrait photography, hard rim lighting photography--beta --ar 2:3  --beta --upbeta",
+        "portrait photo of a young warrior chief, tribal panther make up, blue on red, side profile, looking away, serious eyes 50mm portrait photography, hard rim lighting photography--beta --ar 2:3  --beta --upbeta",
+    ]
+
+Generator = [torch.Generator("cuda").manual_seed(1) for _ in range(len(prompts))]
+    images = pipeline(prompt=prompts, generator=generator, num_inference_steps=25).images
+    make_image_grid(images, 2, 2)
+}
+
+Load different Stable Diffusion formats:
+{
+    Stable Diffusion models are available in different formats depending on the framework they’re trained and saved with, and where you download them from. Converting these formats for use in 🤗 Diffusers allows you to use all the features supported by the library, such as using different schedulers for inference, building your custom pipeline, and a variety of techniques and methods for optimizing inference speed.
+
+We highly recommend using the .safetensors format because it is more secure than traditional pickled files which are vulnerable and can be exploited to execute any code on your machine (learn more in the Load safetensors guide).
+
+This guide will show you how to convert other Stable Diffusion formats to be compatible with 🤗 Diffusers.
+
+PyTorch .ckpt
+    The checkpoint - or .ckpt - format is commonly used to store and save models. The .ckpt file contains the entire model and is typically several GBs in size. While you can load and use a .ckpt file directly with the from_single_file() method, it is generally better to convert the .ckpt file to 🤗 Diffusers so both formats are available.
+
+There are two options for converting a .ckpt file; use a Space to convert the checkpoint or convert the .ckpt file with a script.
+
+Convert with a Space
+    The easiest and most convenient way to convert a .ckpt file is to use the SD to Diffusers Space. You can follow the instructions on the Space to convert the .ckpt file.
+
+This approach works well for basic models, but it may struggle with more customized models. You’ll know the Space failed if it returns an empty pull request or error. In this case, you can try converting the .ckpt file with a script.
+
+Convert with a script
+    🤗 Diffusers provides a conversion script for converting .ckpt files. This approach is more reliable than the Space above.
+
+Before you start, make sure you have a local clone of 🤗 Diffusers to run the script and log in to your Hugging Face account so you can open pull requests and push your converted model to the Hub.
+
+Copied
+    huggingface-cli login
+    To use the script:
+
+Git clone the repository containing the .ckpt file you want to convert. For this example, let’s convert this TemporalNet .ckpt file:
+    Copied
+    git lfs install
+    git clone https://huggingface.co/CiaraRowles/TemporalNet
+    Open a pull request on the repository where you’re converting the checkpoint from:
+    Copied
+    cd TemporalNet && git fetch origin refs/pr/13:pr/13
+    git checkout pr/13
+    There are several input arguments to configure in the conversion script, but the most important ones are:
+
+Checkpoint_path: the path to the .ckpt file to convert.
+
+Original_config_file: a YAML file defining the configuration of the original architecture. If you can’t find this file, try searching for the YAML file in the GitHub repository where you found the .ckpt file.
+
+Dump_path: the path to the converted model.
+
+For example, you can take the cldm_v15.yaml file from the ControlNet repository because the TemporalNet model is a Stable Diffusion v1.5 and ControlNet model.
+
+Now you can run the script to convert the .ckpt file:
+
+Copied
+    python ../diffusers/scripts/convert_original_stable_diffusion_to_diffusers.py --checkpoint_path temporalnetv3.ckpt --original_config_file cldm_v15.yaml --dump_path ./ --controlnet
+    Once the conversion is done, upload your converted model and test out the resulting pull request!
+    Copied
+    git push origin pr/13:refs/pr/13
+    Keras .pb or .h5
+    🧪 This is an experimental feature. Only Stable Diffusion v1 checkpoints are supported by the Convert KerasCV Space at the moment.
+
+KerasCV supports training for Stable Diffusion v1 and v2. However, it offers limited support for experimenting with Stable Diffusion models for inference and deployment whereas 🤗 Diffusers has a more complete set of features for this purpose, such as different noise schedulers, flash attention, and other optimization techniques.
+
+The Convert KerasCV Space converts .pb or .h5 files to PyTorch, and then wraps them in a StableDiffusionPipeline so it is ready for inference. The converted checkpoint is stored in a repository on the Hugging Face Hub.
+
+For this example, let’s convert the sayakpaul/textual-inversion-kerasio checkpoint which was trained with Textual Inversion. It uses the special token <my-funny-cat> to personalize images with cats.
+
+The Convert KerasCV Space allows you to input the following:
+
+Your Hugging Face token.
+    Paths to download the UNet and text encoder weights from. Depending on how the model was trained, you don’t necessarily need to provide the paths to both the UNet and text encoder. For example, Textual Inversion only requires the embeddings from the text encoder and a text-to-image model only requires the UNet weights.
+    Placeholder token is only applicable for textual inversion models.
+    The output_repo_prefix is the name of the repository where the converted model is stored.
+    Click the Submit button to automatically convert the KerasCV checkpoint! Once the checkpoint is successfully converted, you’ll see a link to the new repository containing the converted checkpoint. Follow the link to the new repository, and you’ll see the Convert KerasCV Space generated a model card with an inference widget to try out the converted model.
+
+If you prefer to run inference with code, click on the Use in Diffusers button in the upper right corner of the model card to copy and paste the code snippet:
+
+Copied
+    from diffusers import DiffusionPipeline
+
+Pipeline = DiffusionPipeline.from_pretrained(
+        "sayakpaul/textual-inversion-cat-kerascv_sd_diffusers_pipeline", use_safetensors=True
+    )
+    Then you can generate an image like:
+
+Copied
+    from diffusers import DiffusionPipeline
+
+Pipeline = DiffusionPipeline.from_pretrained(
+        "sayakpaul/textual-inversion-cat-kerascv_sd_diffusers_pipeline", use_safetensors=True
+    )
+    pipeline.to("cuda")
+
+Placeholder_token = "<my-funny-cat-token>"
+    prompt = f"two {placeholder_token} getting married, photorealistic, high quality"
+    image = pipeline(prompt, num_inference_steps=50).images[0]
+    A1111 LoRA files
+    Automatic1111 (A1111) is a popular web UI for Stable Diffusion that supports model sharing platforms like Civitai. Models trained with the Low-Rank Adaptation (LoRA) technique are especially popular because they’re fast to train and have a much smaller file size than a fully finetuned model. 🤗 Diffusers supports loading A1111 LoRA checkpoints with load_lora_weights():
+
+Copied
+    from diffusers import DiffusionPipeline, UniPCMultistepScheduler
+    import torch
+
+Pipeline = DiffusionPipeline.from_pretrained(
+        "andite/anything-v4.0", torch_dtype=torch.float16, safety_checker=None
+    ).to("cuda")
+    pipeline.scheduler = UniPCMultistepScheduler.from_config(pipeline.scheduler.config)
+    Download a LoRA checkpoint from Civitai; this example uses the Howls Moving Castle,Interior/Scenery LoRA (Ghibli Stlye) checkpoint, but feel free to try out any LoRA checkpoint!
+
+Copied
+    # uncomment to download the safetensor weights
+    #!wget https://civitai.com/api/download/models/19998 -O howls_moving_castle.safetensors
+    Load the LoRA checkpoint into the pipeline with the load_lora_weights() method:
+
+Copied
+    pipeline.load_lora_weights(".", weight_name="howls_moving_castle.safetensors")
+    Now you can use the pipeline to generate images:
+
+Copied
+    prompt = "masterpiece, illustration, ultra-detailed, cityscape, san francisco, golden gate bridge, california, bay area, in the snow, beautiful detailed starry sky"
+    negative_prompt = "lowres, cropped, worst quality, low quality, normal quality, artifacts, signature, watermark, username, blurry, more than one bridge, bad architecture"
+
+Images = pipeline(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        width=512,
+        height=512,
+        num_inference_steps=25,
+        num_images_per_prompt=4,
+        generator=torch.manual_seed(0),
+    ).images
+    Display the images:
+
+Copied
+    from diffusers.utils import make_image_grid
+
+Make_image_grid(images, 2, 2)
+}
