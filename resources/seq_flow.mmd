@@ -1,0 +1,28 @@
+sequenceDiagram
+    participant UI as UserInterface
+    participant PG as PrototypeGenerator
+    participant RS as ReviewSystem
+    participant KFG as KeyFrameGenerator
+    participant FG as FrameGenerator
+    participant QC as QualityControl
+    participant VP as VideoProduction
+
+    UI->>UI: Initialize UI
+    UI->>UI: Input required elements
+    UI->>PG: Generate prototypes
+    PG->>UI: Return prototypes
+    UI->>UI: Display prototypes
+    UI->>RS: Review prototypes
+    RS->>UI: Return review result
+    UI->>KFG: Generate key frames
+    KFG->>UI: Return key frames
+    UI->>UI: Display key frames
+    UI->>FG: Generate video frames
+    FG->>UI: Return video frames
+    UI->>UI: Display video frames
+    UI->>QC: Check frame quality
+    QC->>UI: Return quality result
+    UI->>UI: Select video format
+    UI->>UI: Select video resolution
+    UI->>VP: Produce video
+    VP->>UI: Return video
